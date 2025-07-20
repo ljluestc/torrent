@@ -2,6 +2,7 @@ package torrent
 
 import (
 	"context"
+	"github.com/anacrolix/torrent/storage/possum"
 	"io"
 	"runtime"
 	"testing"
@@ -68,11 +69,7 @@ type storageClient struct {
 	completed int
 }
 
-func (s *storageClient) OpenTorrent(
-	_ context.Context,
-	info *metainfo.Info,
-	infoHash metainfo.Hash,
-) (storage.TorrentImpl, error) {
+func (s *storageClient) OpenTorrent(ctx context.Context, info *metainfo.Info, infoHash metainfo.Hash) (*possumTorrentStorage.Torrent, error) {
 	return storage.TorrentImpl{
 		Piece: func(p metainfo.Piece) storage.PieceImpl {
 			return storagePiece{complete: p.Index() < s.completed}

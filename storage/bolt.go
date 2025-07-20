@@ -6,13 +6,13 @@ package storage
 import (
 	"context"
 	"encoding/binary"
+	"os"
 	"path/filepath"
-	"time"
 
-	"github.com/anacrolix/missinggo/expect"
 	"go.etcd.io/bbolt"
 
 	"github.com/anacrolix/torrent/metainfo"
+	"github.com/anacrolix/torrent/storage/internal/shared"
 )
 
 const (
@@ -30,33 +30,56 @@ type boltTorrent struct {
 	ih metainfo.Hash
 }
 
-func NewBoltDB(filePath string) ClientImplCloser {
-	db, err := bbolt.Open(filepath.Join(filePath, "bolt.db"), 0o600, &bbolt.Options{
-		Timeout: time.Second,
-	})
-	expect.Nil(err)
+func NewBoltDB(path string) (*boltClient, error) {
+	os.MkdirAll(filepath.Dir(path), 0o750)
+	db, err := bbolt.Open(path, 0o660, nil)
+	if err != nil {
+		return nil, err
+	}
 	db.NoSync = true
-	return &boltClient{db}
+	return &boltClient{db}, nil
 }
 
 func (me *boltClient) Close() error {
 	return me.db.Close()
 }
 
-func (me *boltClient) OpenTorrent(
-	_ context.Context,
-	_ *metainfo.Info,
-	infoHash metainfo.Hash,
-) (TorrentImpl, error) {
-	t := &boltTorrent{me, infoHash}
-	return TorrentImpl{
-		Piece: t.Piece,
-		Close: t.Close,
-	}, nil
+func (me *boltClient) OpenTorrent(ctx context.Context, info *metainfo.Info, infoHash metainfo.Hash) (shared.TorrentImpl, error) {
+	return &boltTorrent{me, infoHash}, nil
 }
 
-func (me *boltTorrent) Piece(p metainfo.Piece) PieceImpl {
-	ret := &boltPiece{
+type boltStoragePiece struct {
+	p   metainfo.Piece
+	db  *bbolt.DB
+	ih  metainfo.Hash
+	key [24]byte
+}
+
+func (me *boltStoragePiece) Completion() shared.Completion {
+	return shared.Completion{
+		Complete: false,
+		Ok:       true,
+	}
+}
+
+func (me *boltStoragePiece) MarkComplete() error {
+	return nil
+}
+
+func (me *boltStoragePiece) MarkNotComplete() error {
+	return nil
+}
+
+func (me *boltStoragePiece) ReadAt(b []byte, off int64) (n int, err error) {
+	return 0, nil
+}
+
+func (me *boltStoragePiece) WriteAt(b []byte, off int64) (n int, err error) {
+	return len(b), nil
+}
+
+func (me *boltTorrent) Piece(p metainfo.Piece) shared.PieceImpl {
+	ret := &boltStoragePiece{
 		p:  p,
 		db: me.cl.db,
 		ih: me.ih,
@@ -65,5 +88,4 @@ func (me *boltTorrent) Piece(p metainfo.Piece) PieceImpl {
 	binary.BigEndian.PutUint32(ret.key[20:], uint32(p.Index()))
 	return ret
 }
-
-func (boltTorrent) Close() error { return nil }
+func (me *boltTorrent) Close() error { return nil }

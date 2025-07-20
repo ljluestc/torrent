@@ -3,6 +3,7 @@ package test
 import (
 	"context"
 	"errors"
+	"github.com/anacrolix/torrent/storage/possum"
 	"io"
 	"os"
 	"sync"
@@ -126,11 +127,7 @@ func (me *diskFullStorage) Close() error {
 	return nil
 }
 
-func (d *diskFullStorage) OpenTorrent(
-	_ context.Context,
-	info *metainfo.Info,
-	infoHash metainfo.Hash,
-) (storage.TorrentImpl, error) {
+func (d *diskFullStorage) OpenTorrent(ctx context.Context, info *metainfo.Info, infoHash metainfo.Hash) (*possumTorrentStorage.Torrent, error) {
 	return storage.TorrentImpl{Piece: d.Piece, Close: d.Close}, nil
 }
 

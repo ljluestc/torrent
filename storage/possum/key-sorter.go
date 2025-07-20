@@ -1,4 +1,4 @@
-package possumTorrentStorage
+package possum
 
 import (
 	"cmp"

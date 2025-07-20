@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/anacrolix/torrent/storage/possum"
 	"io"
 	"os"
 	"path/filepath"
@@ -35,11 +36,7 @@ func NewMMapWithCompletion(baseDir string, completion PieceCompletion) *mmapClie
 	}
 }
 
-func (s *mmapClientImpl) OpenTorrent(
-	_ context.Context,
-	info *metainfo.Info,
-	infoHash metainfo.Hash,
-) (_ TorrentImpl, err error) {
+func (s *mmapClientImpl) OpenTorrent(ctx context.Context, info *metainfo.Info, infoHash metainfo.Hash) (_ *possumTorrentStorage.Torrent, err error) {
 	span, err := mMapTorrent(info, s.baseDir)
 	t := &mmapTorrentStorage{
 		infoHash: infoHash,

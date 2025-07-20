@@ -1,6 +1,6 @@
 //go:build !android
 
-package possumTorrentStorage
+package possum
 
 import (
 	"fmt"
@@ -9,26 +9,26 @@ import (
 	"strconv"
 
 	"github.com/anacrolix/log"
-	possum "github.com/anacrolix/possum/go"
+	possumLib "github.com/anacrolix/possum/go"
 	possumResource "github.com/anacrolix/possum/go/resource"
 
-	"github.com/anacrolix/torrent/storage"
+	"github.com/anacrolix/torrent/storage/internal/shared"
 )
 
 // Extends possum resource.Provider with an efficient implementation of torrent
-// storage.ConsecutiveChunkReader. TODO: This doesn't expose Capacity. TODO: Add a MarkComplete
+// ConsecutiveChunkReader. TODO: This doesn't expose Capacity. TODO: Add a MarkComplete
 // method that renames incomplete chunks rather than writing them to a single giant key and deleting
 // them.
-type Provider struct {
+type TorrentProvider struct {
 	possumResource.Provider
 	Logger log.Logger
 }
 
-var _ storage.ConsecutiveChunkReader = Provider{}
+var _ shared.ConsecutiveChunkReader = TorrentProvider{}
 
 // TODO: Should the parent ReadConsecutiveChunks method take the expected number of bytes to avoid
 // trying to read discontinuous or incomplete sequences of chunks?
-func (p Provider) ReadConsecutiveChunks(prefix string) (rc io.ReadCloser, err error) {
+func (p TorrentProvider) ReadConsecutiveChunks(prefix string) (rc io.ReadCloser, err error) {
 	p.Logger.Levelf(log.Debug, "ReadConsecutiveChunks(%q)", prefix)
 	//debug.PrintStack()
 	pr, err := p.Handle.NewReader()
@@ -55,7 +55,7 @@ func (p Provider) ReadConsecutiveChunks(prefix string) (rc io.ReadCloser, err er
 		}
 		keys = append(keys, i)
 	}
-	sort.Sort(keySorter[possum.Item, int64]{items, keys})
+	sort.Sort(keySorter[possumLib.Item, int64]{items, keys})
 	offset := int64(0)
 	consValues := make([]consecutiveValue, 0, len(items))
 	for i, item := range items {
@@ -68,7 +68,7 @@ func (p Provider) ReadConsecutiveChunks(prefix string) (rc io.ReadCloser, err er
 			// This item isn't needed
 			continue
 		}
-		var v possum.Value
+		var v possumLib.Value
 		v, err = pr.Add(prefix + item.Key)
 		if err != nil {
 			return
@@ -97,12 +97,12 @@ func (p Provider) ReadConsecutiveChunks(prefix string) (rc io.ReadCloser, err er
 }
 
 type consecutiveValue struct {
-	pv     possum.Value
+	pv     possumLib.Value
 	offset int64
 	size   int64
 }
 
-func (pp Provider) writeConsecutiveValues(
+func (pp TorrentProvider) writeConsecutiveValues(
 	values []consecutiveValue, pw *io.PipeWriter,
 ) (err error) {
 	off := int64(0)
@@ -118,6 +118,6 @@ func (pp Provider) writeConsecutiveValues(
 	return nil
 }
 
-func (pp Provider) MovePrefix(from, to string) (err error) {
+func (pp TorrentProvider) MovePrefix(from, to string) (err error) {
 	return pp.Handle.MovePrefix([]byte(from), []byte(to))
 }

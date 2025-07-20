@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"github.com/anacrolix/torrent/storage/possum"
 	"io"
 	"path"
 	"sort"
@@ -51,11 +52,7 @@ func (piecePerResourceTorrentImpl) Close() error {
 	return nil
 }
 
-func (s piecePerResource) OpenTorrent(
-	ctx context.Context,
-	info *metainfo.Info,
-	infoHash metainfo.Hash,
-) (TorrentImpl, error) {
+func (s piecePerResource) OpenTorrent(ctx context.Context, info *metainfo.Info, infoHash metainfo.Hash) (*possumTorrentStorage.Torrent, error) {
 	t := piecePerResourceTorrentImpl{
 		s,
 		make([]sync.RWMutex, info.NumPieces()),

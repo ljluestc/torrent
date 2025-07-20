@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"github.com/anacrolix/torrent/storage/possum"
 	"io"
 
 	g "github.com/anacrolix/generics"
@@ -16,7 +17,7 @@ type ClientImplCloser interface {
 
 // Represents data storage for an unspecified torrent.
 type ClientImpl interface {
-	OpenTorrent(ctx context.Context, info *metainfo.Info, infoHash metainfo.Hash) (TorrentImpl, error)
+	OpenTorrent(ctx context.Context, info *metainfo.Info, infoHash metainfo.Hash) (*possumTorrentStorage.Torrent, error)
 }
 
 // Returning a negative cap, can we indicate there's no specific cap? If this is not-nil we use it

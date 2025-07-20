@@ -2,24 +2,27 @@ package torrentfs
 
 import (
 	"context"
+	"github.com/anacrolix/torrent"
 	"io"
+	"sync"
 
 	"github.com/anacrolix/fuse"
-	"github.com/anacrolix/fuse/fs"
+	fusefs "github.com/anacrolix/fuse/fs"
 	"github.com/anacrolix/missinggo/v2"
-
-	"github.com/anacrolix/torrent"
+	"github.com/anacrolix/missinggo/v2/pproffd"
 )
 
-type fileHandle struct {
-	fn fileNode
-	tf *torrent.File
+// TorrentFS represents the filesystem for torrents
+type torrentFS struct {
+	mu           sync.Mutex
+	blockedReads int
+	event        *sync.Cond
+	destroyed    chan struct{}
+	// Add other required fields
 }
 
-var _ interface {
-	fs.HandleReader
-	fs.HandleReleaser
-} = fileHandle{}
+// Define the metrics counter at package level
+var torrentfsReadRequests = missinggo.NewExpVar("torrentfs.read.requests")
 
 func (me fileHandle) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse.ReadResponse) error {
 	torrentfsReadRequests.Add(1)
@@ -27,8 +30,16 @@ func (me fileHandle) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse
 		panic("read on directory")
 	}
 	r := me.tf.NewReader()
-	defer r.Close()
-	pos, err := r.Seek(req.Offset, io.SeekStart)
+	defer func() {
+		if closer, ok := r.(io.Closer); ok {
+			closer.Close()
+		}
+	}()
+	seeker, ok := r.(io.Seeker)
+	if !ok {
+		panic("reader does not implement io.Seeker")
+	}
+	pos, err := seeker.Seek(req.Offset, io.SeekStart)
 	if err != nil {
 		panic(err)
 	}
@@ -46,7 +57,7 @@ func (me fileHandle) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse
 		me.fn.FS.event.Broadcast()
 		me.fn.FS.mu.Unlock()
 		var n int
-		r := missinggo.ContextedReader{r, ctx}
+		r := missinggo.ContextedReader{Reader: r, Ctx: ctx}
 		// log.Printf("reading %v bytes at %v", len(resp.Data), req.Offset)
 		if true {
 			// A user reported on that on freebsd 12.2, the system requires that reads are

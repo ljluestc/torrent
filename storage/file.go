@@ -3,14 +3,13 @@ package storage
 import (
 	"context"
 	"fmt"
+	"github.com/anacrolix/torrent/storage/internal/shared"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 
 	"github.com/anacrolix/log"
-	"github.com/anacrolix/missinggo/v2"
-
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/anacrolix/torrent/segments"
 )
@@ -22,7 +21,14 @@ type fileClientImpl struct {
 
 // All Torrent data stored in this baseDir. The info names of each torrent are used as directories.
 func NewFile(baseDir string) ClientImplCloser {
-	return NewFileWithCompletion(baseDir, pieceCompletionForDir(baseDir))
+	completion, err := NewDefaultPieceCompletionForDir(baseDir)
+	if err != nil {
+		panic(fmt.Errorf("error creating piece completion: %w", err))
+	}
+	return NewFileWithOpts(NewFileClientOpts{
+		ClientBaseDir:   baseDir,
+		PieceCompletion: completion,
+	})
 }
 
 type NewFileClientOpts struct {
@@ -33,8 +39,8 @@ type NewFileClientOpts struct {
 	PieceCompletion PieceCompletion
 }
 
-// NewFileOpts creates a new ClientImplCloser that stores files using the OS native filesystem.
-func NewFileOpts(opts NewFileClientOpts) ClientImplCloser {
+// NewFileWithOpts creates a new ClientImplCloser that stores files using the OS native filesystem.
+func NewFileWithOpts(opts NewFileClientOpts) ClientImplCloser {
 	if opts.TorrentDirMaker == nil {
 		opts.TorrentDirMaker = defaultPathMaker
 	}
@@ -48,7 +54,11 @@ func NewFileOpts(opts NewFileClientOpts) ClientImplCloser {
 		}
 	}
 	if opts.PieceCompletion == nil {
-		opts.PieceCompletion = pieceCompletionForDir(opts.ClientBaseDir)
+		var err error
+		opts.PieceCompletion, err = NewDefaultPieceCompletionForDir(opts.ClientBaseDir)
+		if err != nil {
+			panic(fmt.Errorf("error creating piece completion: %w", err))
+		}
 	}
 	return fileClientImpl{opts}
 }
@@ -57,11 +67,7 @@ func (me fileClientImpl) Close() error {
 	return me.opts.PieceCompletion.Close()
 }
 
-func (fs fileClientImpl) OpenTorrent(
-	ctx context.Context,
-	info *metainfo.Info,
-	infoHash metainfo.Hash,
-) (_ TorrentImpl, err error) {
+func (fs fileClientImpl) OpenTorrent(ctx context.Context, info *metainfo.Info, infoHash metainfo.Hash) (shared.TorrentImpl, error) {
 	dir := fs.opts.TorrentDirMaker(fs.opts.ClientBaseDir, info, infoHash)
 	logger := log.ContextLogger(ctx).Slogger()
 	logger.DebugContext(ctx, "opened file torrent storage", slog.String("dir", dir))
@@ -73,34 +79,18 @@ func (fs fileClientImpl) OpenTorrent(
 			File: &fileInfo,
 		}))
 		if !isSubFilepath(dir, filePath) {
-			err = fmt.Errorf("file %v: path %q is not sub path of %q", i, filePath, dir)
-			return
+			err := fmt.Errorf("file %v: path %q is not sub path of %q", i, filePath, dir)
+			return nil, err
 		}
 		f := file{
 			path:   filePath,
 			length: fileInfo.Length,
 		}
 		if f.length == 0 {
-			err = CreateNativeZeroLengthFile(f.path)
+			err := CreateNativeZeroLengthFile(f.path)
 			if err != nil {
-				err = fmt.Errorf("creating zero length file: %w", err)
-				return
+				return nil, err
 			}
-		}
-		files = append(files, f)
-	}
-	t := &fileTorrentImpl{
-		files,
-		info.FileSegmentsIndex(),
-		infoHash,
-		fs.opts.PieceCompletion,
-	}
-	return TorrentImpl{
-		Piece: t.Piece,
-		Close: t.Close,
-		Flush: t.Flush,
-	}, nil
-}
 
 type file struct {
 	// The safe, OS-local file path.
@@ -120,10 +110,10 @@ func (fts *fileTorrentImpl) Piece(p metainfo.Piece) PieceImpl {
 	_io := fileTorrentImplIO{fts}
 	// Return the appropriate segments of this.
 	return &filePieceImpl{
-		fts,
-		p,
-		missinggo.NewSectionWriter(_io, p.Offset(), p.Length()),
-		io.NewSectionReader(_io, p.Offset(), p.Length()),
+		fts: fts,
+		p: p,
+		w: missinggo.NewSectionWriter(_io, p.Offset(), p.Length()),
+		r: io.NewSectionReader(_io, p.Offset(), p.Length()),
 	}
 }
 
@@ -198,7 +188,7 @@ func (fst fileTorrentImplIO) readFileAt(file file, b []byte, off int64) (n int, 
 			break
 		}
 	}
-	return
+	return n, err
 }
 
 // Only returns EOF at the end of the torrent. Premature EOF is ErrUnexpectedEOF.
@@ -240,5 +230,5 @@ func (fst fileTorrentImplIO) WriteAt(p []byte, off int64) (n int, err error) {
 		}
 		return err == nil
 	})
-	return
+	return n, err
 }
