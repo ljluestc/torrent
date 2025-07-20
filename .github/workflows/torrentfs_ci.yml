@@ -1,0 +1,62 @@
+name: TorrentFS Tests with fuse-t
+
+on:
+  push:
+    branches: [ master ]
+    paths:
+      - 'fs/**'
+      - '.github/workflows/torrentfs_ci.yml'
+  pull_request:
+    branches: [ master ]
+    paths:
+      - 'fs/**'
+      - '.github/workflows/torrentfs_ci.yml'
+
+jobs:
+  test-fuse-t:
+    name: Test TorrentFS with fuse-t
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        go-version: ['1.24']
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ matrix.go-version }}
+        
+    - name: Install fuse-t dependencies (Ubuntu)
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libfuse-dev pkg-config
+
+    - name: Install fuse-t dependencies (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        brew install macfuse
+        sudo chmod +x /Library/Filesystems/macfuse.fs/Contents/Resources/load_macfuse
+        sudo /Library/Filesystems/macfuse.fs/Contents/Resources/load_macfuse
+
+    - name: Install fuse-t
+      run: go install github.com/fuse-t/fuse-t/cmd/fuse-t@latest
+
+    - name: Install dependencies
+      run: |
+        go mod download github.com/fuse-t/fuse-t
+
+    - name: Run TorrentFS tests with fuse-t
+      run: |
+        cd fs
+        go test -v -tags=fuset ./...
+
+    - name: Run TorrentFS with race detection
+      if: runner.os == 'Linux'
+      run: |
+        cd fs
+        go test -v -race -tags=fuset ./...

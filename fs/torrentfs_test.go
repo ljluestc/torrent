@@ -254,3 +254,106 @@ func TestIsSubPath(t *testing.T) {
 		assert.Equal(t, case_.is, isSubPath(case_.parent, case_.child))
 	}
 }
+//go:build !notorrentfs
+// +build !notorrentfs
+
+package torrentfs
+
+import (
+	"context"
+	"io"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/anacrolix/torrent"
+	"github.com/anacrolix/torrent/internal/testutil"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestTorrentFS(t *testing.T) {
+	SkipOnUnsupportedOS(t)
+
+	client, tt := setupTestClientWithTorrent(t)
+	defer client.Close()
+	
+	// Wait for torrent metadata
+	<-tt.GotInfo()
+	
+	// Mount the filesystem
+	mountDir, unmount, err := mountTestTorrentFS(t, client)
+	require.NoError(t, err)
+	defer os.RemoveAll(mountDir)
+	defer unmount()
+
+	// Test reading a file from the torrent filesystem
+	fileName := filepath.Join(mountDir, tt.Name(), tt.Files()[0].Path())
+	t.Logf("Attempting to read file: %s", fileName)
+
+	// Wait for the file to become available
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var fileInfo os.FileInfo
+	for {
+		var err error
+		fileInfo, err = os.Stat(fileName)
+		if err == nil {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("Timeout waiting for file to be available: %v", err)
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+
+	// Verify file size
+	assert.Equal(t, tt.Files()[0].Length(), fileInfo.Size())
+
+	// Read the file
+	f, err := os.Open(fileName)
+	require.NoError(t, err)
+	defer f.Close()
+
+	data, err := io.ReadAll(f)
+	require.NoError(t, err)
+	assert.NotEmpty(t, data)
+
+	// Verify file contents (if we have them)
+	if len(data) == int(tt.Files()[0].Length()) {
+		assert.Contains(t, string(data), "Hello, World") // Assuming test file contains this
+	}
+}
+
+func TestUnmountWedged(t *testing.T) {
+	if skipTestUnmountWedged {
+		t.Skip("TestUnmountWedged is skipped")
+	}
+	
+	SkipOnUnsupportedOS(t)
+
+	client, _ := setupTestClientWithTorrent(t)
+	defer client.Close()
+
+	// Mount the filesystem
+	mountDir, unmount, err := mountTestTorrentFS(t, client)
+	require.NoError(t, err)
+	defer os.RemoveAll(mountDir)
+
+	// Test unmounting works even with active operations
+	// First start a long-running read operation
+	fileName := filepath.Join(mountDir, "nonexistent-file.txt")
+	go func() {
+		// This will block, simulating a wedged read
+		_, _ = os.ReadFile(fileName)
+	}()
+
+	// Give the read operation time to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Now try to unmount
+	err = unmount()
+	assert.NoError(t, err, "Unmount should succeed even with active operations")
+}

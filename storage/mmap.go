@@ -1,5 +1,4 @@
-//go:build !wasm
-// +build !wasm
+//go:build !possum
 
 package storage
 
@@ -21,15 +20,19 @@ import (
 
 type mmapClientImpl struct {
 	baseDir string
-	pc      PieceCompletion
+	pc      PieceCompletionGetSetter
 }
 
 // TODO: Support all the same native filepath configuration that NewFileOpts provides.
 func NewMMap(baseDir string) ClientImplCloser {
-	return NewMMapWithCompletion(baseDir, pieceCompletionForDir(baseDir))
+	pc, err := NewBoltPieceCompletion(baseDir)
+	if err != nil {
+		panic(err)
+	}
+	return NewMMapWithCompletion(baseDir, pc)
 }
 
-func NewMMapWithCompletion(baseDir string, completion PieceCompletion) *mmapClientImpl {
+func NewMMapWithCompletion(baseDir string, completion PieceCompletionGetSetter) ClientImplCloser {
 	return &mmapClientImpl{
 		baseDir: baseDir,
 		pc:      completion,
@@ -43,7 +46,7 @@ func (s *mmapClientImpl) OpenTorrent(ctx context.Context, info *metainfo.Info, i
 		span:     span,
 		pc:       s.pc,
 	}
-	return TorrentImpl{Piece: t.Piece, Close: t.Close, Flush: t.Flush}, err
+	return &TorrentImpl{Piece: t.Piece, Close: t.Close, Flush: t.Flush}, err
 }
 
 func (s *mmapClientImpl) Close() error {

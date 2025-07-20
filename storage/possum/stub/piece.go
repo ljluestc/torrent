@@ -1,10 +1,8 @@
-//go:build stub
-// +build stub
-
 package stub
 
 import (
 	"errors"
+
 	"github.com/anacrolix/torrent/storage/internal/shared"
 )
 
